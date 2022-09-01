@@ -18,7 +18,7 @@
 1. 留空，暂未commit & push
 2. 模型量化推理
 
-### 2022.xx.xx 更新：添加`pipeline_impala`分支
+### 2022.09.01 更新：添加`pipeline_impala`分支
 1. 更新了envpool及分组流水线采样(pipeline)实现
    * 以下给出了128和140两个服务器的较优配置文件，可直接运行
      * [examples_1](examples/breakout_impala_pipeline_128opt.yaml)
