@@ -47,29 +47,79 @@ def main():
     """:return: config file for training or testing."""
     parser = argparse.ArgumentParser(description="XingTian Usage.")
 
-    parser.add_argument(
-        "-f", "--config_file", required=True, help="""config file with yaml""",
-    )
+    parser.add_argument("-f", "--config_file", required=True, help="""config file with yaml""",)
     # fixme: split local and hw_cloud,
     #  source path could read from yaml startswith s3
-    parser.add_argument(
-        "-s3", "--save_to_s3", default=None, help="save model/records into s3 bucket."
-    )
-    parser.add_argument(
-        "-t",
-        "--task",
-        # required=True,
-        default="train",
-        choices=list(OPEN_TASKS_SET),
-        help="task choice to run xingtian.",
-    )
-    parser.add_argument(
-        "-v", "--verbosity", default="info", help="logging.set_verbosity"
-    )
+    parser.add_argument("-s3", "--save_to_s3", default=None, help="save model/records into s3 bucket.")
+    parser.add_argument("-t", "--task", default="train", choices=list(OPEN_TASKS_SET), help="task choice to run xingtian.",)
+    parser.add_argument("-v", "--verbosity", default="info", help="logging.set_verbosity")
+
+    # revised by ZZX *begin
+    parser.add_argument("-g", "--group_num", default=None)
+    parser.add_argument("-e", "--env_num", default=None)
+    parser.add_argument("-s", "--size", default=None)
+    parser.add_argument("-w", "--wait_num", default=None)
+    parser.add_argument("-b", "--speedup", default=None)
+    parser.add_argument("-l", "--lock", default=1)
+    parser.add_argument("-c", "--start_core", default=0)
+    parser.add_argument("--gpu", default=-1)
+    # revised by ZZX *end
 
     args, _ = parser.parse_known_args()
     if _:
         logging.warning("get unknown args: {}".format(_))
+
+    # revised by ZZX *begin
+    with open(args.config_file, "r") as conf_file:
+        _info = yaml.safe_load(conf_file)
+    if args.group_num is not None:  # group_num
+        _info.update({"group_num": int(args.group_num)})
+    if args.env_num is not None:  # env_num
+        _info.update({"env_num": int(args.env_num)})
+
+    env_para = _info.get("env_para")
+    env_info = env_para.get("env_info")
+    if args.size is not None:  # size
+        env_info.update({"size": int(args.size)})
+        env_info.update({"vector_env_size": int(args.size)})
+    if args.wait_num is not None:  # wait_num
+        env_info.update({"wait_num": int(args.wait_num)})
+    env_para.update({"env_info": env_info})
+    _info.update({"env_para": env_para})
+
+    if args.speedup is not None:  # speedup
+        _info.update({"speedup": int(args.speedup)})
+    if args.lock is not None:  # lock
+        _info.update({"lock": int(args.lock)})
+    if args.start_core is not None:  # start_core
+        _info.update({"start_core": int(args.start_core)})
+
+    _info.update({"gpu":args.gpu})  # gpu
+
+    root = os.path.expanduser(r'~/.xt/')
+    if not os.path.isdir(root):
+        os.mkdir(root)
+    args.config_file = os.path.expanduser(r'~/.xt/config.yaml')
+    with open(args.config_file, "w") as conf_file:
+        yaml.dump(_info, conf_file)
+
+    print('\t---------------------------------')
+    print('\t| [GGLC] CONFIG/group_num  | {:2d} |'.format(_info.get("group_num", -1)))
+    print('\t| [GGLC] CONFIG/env_num    | {:2d} |'.format(_info.get("env_num", -1)))
+    print('\t| [GGLC] CONFIG/size       | {:2d} |'.format(_info.get("env_para").get("env_info").get("size", -1)))
+    print('\t| [GGLC] CONFIG/wait_num   | {:2d} |'.format(_info.get("env_para").get("env_info").get("wait_num", -1)))
+    print('\t| [GGLC] CONFIG/speedup    | {:2d} |'.format(_info.get("speedup", -1)))
+    print('\t| [GGLC] CONFIG/lock       | {:2d} |'.format(_info.get("lock", -1)))
+    print('\t| [GGLC] CONFIG/start_core | {:2d} |'.format(_info.get("start_core", -1)))
+    print('\t| [GGLC] CONFIG/GPU        | {} |'.format(_info.get("gpu", -1)))
+    print('\t| [GGLC] ADD/env_per_group | {:2d} |'.format(_info.get("env_num") // _info.get("group_num", 1)))
+    print('\t---------------------------------')
+
+    assert _info.get("env_num") % _info.get("group_num", 1) == 0, "env_num % group_num == 0"
+    if _info.get("start_core", 0) % 10 != 0:
+        print('\t[WARN] start_core % 10 == 0 recommended.')
+    print('\t---------------------------------')
+    # revised by ZZX *end
 
     if args.verbosity in VERBOSITY_MAP.keys():
         logging.set_verbosity(VERBOSITY_MAP[args.verbosity])

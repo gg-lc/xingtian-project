@@ -56,6 +56,9 @@ class Agent(object):
 
         self._stats = AgentStats()
 
+        # revised by ZZX
+        self.step = 0
+
     def clear_transition(self):
         pass
 
@@ -97,6 +100,8 @@ class Agent(object):
 
         raise NotImplementedError
 
+    # revised by ZZX *begin
+    '''
     def do_one_interaction(self, raw_state, use_explore=True):
         """
         Use the Agent do one interaction.
@@ -117,6 +122,35 @@ class Agent(object):
 
         self.handle_env_feedback(next_raw_state, reward, done, info, use_explore)
         return next_raw_state
+    '''
+
+    def do_one_interaction(self, raw_state, use_explore=True, lock=None, gid=-1, eid=-1, need_info=False):
+        """
+        Use the Agent do one interaction.
+
+        User could re-write the infer_action and handle_env_feedback functions.
+        :param raw_state:
+        :param use_explore:
+        :return:
+        """
+        _start0 = time()
+        action = self.infer_action(raw_state, use_explore)
+        self._stats.inference_time += time() - _start0
+        if lock is not None:
+            lock[gid].acquire()
+        _start0 = time()
+        next_raw_state, reward, done, info = self.env.step(action, self.id)
+        if lock is not None:
+            lock[gid].release()
+            self.step = (self.step+1)%128
+        self._stats.env_step_time += time() - _start0
+        self._stats.iters += 1
+        self.handle_env_feedback(next_raw_state, reward, done, info, use_explore)
+        if need_info:
+            return next_raw_state, info
+        return next_raw_state
+
+    # revised by ZZX *end
 
     def handle_env_feedback(self, next_raw_state, reward, done, info, use_explore):
         self.transition_data.update(
@@ -124,7 +158,7 @@ class Agent(object):
         )
         raise NotImplementedError
 
-    def run_one_episode(self, use_explore, need_collect):
+    def run_one_episode(self, use_explore, need_collect, lock=None, gid=-1, eid=-1):
         """
         Do interaction with max steps in each episode.
 
@@ -140,7 +174,9 @@ class Agent(object):
 
         for _ in range(self.max_step):
             self.clear_transition()
-            state = self.do_one_interaction(state, use_explore)
+
+            # revised by ZZX: added arguments 'lock', 'gid' and 'eid'
+            state = self.do_one_interaction(state, use_explore, lock=lock, gid=gid, eid=eid)
 
             if need_collect:
                 self.add_to_trajectory(self.transition_data)

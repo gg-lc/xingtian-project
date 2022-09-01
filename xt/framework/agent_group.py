@@ -211,7 +211,12 @@ class AgentGroup(object):
 
         for i in range(self.agent_num):
             target_para[i].update(
-                {"vector_env_size": env_info.get("vector_env_size", 1)})
+                # revise by ZZX *begin
+                # {"vector_env_size": env_info.get("vector_env_size", 1)}
+                {"vector_env_size": env_info.get("vector_env_size", 1),
+                 "wait_num": env_info.get("wait_num", env_info.get("vector_env_size", 1))}
+                # revise by ZZX *end
+            )
         return target_para
 
     @staticmethod
@@ -396,7 +401,7 @@ class AgentGroup(object):
         feed_funcs = [agent.handel_predict_value for agent in self.agents]
         feed_inputs = list(zip(states, pred_vals))
 
-        batch_action =  self.bot.do_multi_job(feed_funcs, feed_inputs)
+        batch_action = self.bot.do_multi_job(feed_funcs, feed_inputs)
 
         # agent.id keep pace with the id within the environment.
         action_package = {_ag.id: v for _ag, v in zip(self.agents, batch_action)}
@@ -433,7 +438,8 @@ class AgentGroup(object):
             self.ag_stats.restore_model_time = time() - _start1
         return type(model_name)
 
-    def explore(self, episode_count):
+    # revised by ZZX: added arguments
+    def explore(self, episode_count, lock=None, gid=-1, eid=-1):
         """
         Explore the environment.
 
@@ -450,7 +456,8 @@ class AgentGroup(object):
         if self.env_info["api_type"] == "standalone":
             # (use_explore, collect)
             _paras = [
-                (True, False if _ag.alg.async_flag else True) for _ag in self.agents
+                # revised by ZZX: added arguments
+                (True, False if _ag.alg.async_flag else True, lock, gid, eid) for _ag in self.agents
             ]
             job_funcs = [agent.run_one_episode for agent in self.agents]
             for _epi_index in range(episode_count):

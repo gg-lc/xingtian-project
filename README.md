@@ -3,7 +3,7 @@
 2. 更新流程：
    1. 从master或所需分支**创建新的分支**并命名（如dev_pipeline）
    2. 对**本地分支**（dev_pipeline）进行**修改**
-      1. 需要在README中**详细说明代码修改/增删位置**
+      1. 需要在README中**简要说明代码修改情况**
       2. 需在增删/修改的代码处**添加注释**，并注明修改人
       3. 涉及到**功能性更新**需在相应分支的README中对更新功能进行详细的阐述，
       包括更新介绍、配置方式、注意事项等。参考2022.03.12更新
@@ -17,9 +17,29 @@
 1. 留空，暂未commit & push
 2. 模型量化推理
 
-### 2022.xx.xx 更新：添加`pipeline`分支
-1. 留空，暂未commit & push
-2. 分组流水线采样
+### 2022.xx.xx 更新：添加`pipeline_impala`分支
+1. 更新了envpool及分组流水线采样(pipeline)实现
+   * 以下给出了128和140两个服务器的较优配置文件，可直接运行
+     * [examples_1](examples/breakout_impala_pipeline_128opt.yaml)
+     * [examples_2](examples/breakout_impala_pipeline_140opt.yaml)
+   * 使用pipeline参数配置（yaml文件）
+     * `env_name`: EnvPool
+     * `vector_env_size`: 单个envpool大小，即环境并行数量
+     * `size`: 等同于vector_env_size，这两项设定应当相同
+     * `wait_num`: envpool参数，实现异步并行采样
+     * `env_num`: envpool的总数量，应当是group_num的整数倍
+     * `group_num`: 将envpool划分成的组数，每一组的envpool将绑定在一组CPU核心进行采样
+     * `speedup`: 3，绑核方式，0为不绑核，1为顺序绑核，2为均衡化绑核，3为pipeline绑核
+   * 命令行参数（可选）
+     * `--gpu n`: 指定使用编号为n的GPU进行推理，默认使用CPU推理
+     * `-b n`: 等同yaml文件的speedup参数，优先级更高
+     * `-s n`: 等同yaml文件的size参数，优先级更高
+     * `-w n`: 等同yaml文件的wait_num参数，优先级更高
+     * `-e n`: 等同yaml文件的env_num参数，优先级更高
+     * `-g n`: 等同yaml文件的group_num参数，优先级更高
+3. 代码修改（所有修改内容均添加了"ZZX"标记，可进行全局搜索）
+
+
 
 ### 2022.03.12 更新：添加`balanced_core_binding`分支
 1. 修改[broker.py](xt/framework/broker.py)以实现均衡化绑核

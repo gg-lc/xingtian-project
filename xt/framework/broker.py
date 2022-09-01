@@ -18,6 +18,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 """Broker setup the message tunnel between learner and explorer."""
+import multiprocessing
 import os
 import tracemalloc
 import threading
@@ -277,6 +278,9 @@ class Broker(object):
     """Broker manage the Broker within Explorer of each node."""
 
     def __init__(self, ip_addr, broker_id, push_port, pull_port):
+        # added by ZZX
+        self.lock = None
+
         self.broker_id = broker_id
         self.send_controller_q = UniComm(
             "CommByZmq", type="PUSH", addr=ip_addr, port=push_port
@@ -475,8 +479,22 @@ class Broker(object):
             debug_within_interval(logs=dict(self.explorer_stats),
                                   interval=DebugConf.interval_s, human_able=True)
 
+    # revised by ZZX *begin
+    @staticmethod
+    def _get_hardware_config():
+        socket = 0
+        with open('/proc/cpuinfo', 'r') as f:
+            for line in f:  # number of sockets = maximum physical cpu id
+                if line.lower().startswith('physical'):  # physical id : xxx
+                    socket = max(socket, int(line.split()[-1]))
+        socket = socket + 1
+        logical, physical = psutil.cpu_count(), psutil.cpu_count(logical=False)
+        return socket, logical, physical
+
+    # backup
+    """
     def create_explorer(self, config_info):
-        """Create explorer."""
+        # Create explorer.
         env_para = config_info.get("env_para")
         env_num = config_info.get("env_num")
         speedup = config_info.get("speedup", True)
@@ -503,6 +521,133 @@ class Broker(object):
 
         self.send_explorer_q.update({env_id: send_explorer})
         self.explore_process.update({env_id: p})
+    """
+
+    def create_explorer(self, config_info):
+        """Create explorer."""
+        env_para = config_info.get("env_para")
+        env_num = config_info.get("env_num")
+        speedup = config_info.get("speedup", False)  # 0:no binding;  1:sequential;  2:balanced;  3:pipeline;
+        start_core = config_info.get("start_core", 0)
+        env_id = env_para.get("env_id")  # used for explorer id.
+        ref_learner_id = config_info.get("learner_postfix")
+
+        # core binding
+        socket, logical, physical = self._get_hardware_config()
+        if speedup == 3:
+            lock_val = config_info.get("lock", 0)
+            group_num = config_info.get("group_num", 1)
+
+            # lock
+            if lock_val == 1:
+                self.lock = [multiprocessing.Lock() for _ in range(group_num)]
+            elif lock_val > 1:
+                self.lock = [multiprocessing.Semaphore(lock_val) for _ in range(group_num)]
+
+            env_id = env_id
+            epg = env_num / group_num
+            group_id = int(env_id // epg)  # 0,1,2,3
+            explorer_core = int(group_id * (physical / socket) + (env_id % epg)) + start_core
+            env_start_core = int(group_id * (physical / socket) + epg) + start_core
+
+            env_info = env_para.get("env_info")
+            env_info.update({"env_start_core": env_start_core})
+            env_para.update({"env_info": env_info})
+            config_info.update({"env_para": env_para})
+
+            send_explorer = Queue()
+            explorer = Explorer(
+                config_info,
+                self.broker_id,
+                recv_broker=send_explorer,
+                send_broker=self.explorer_share_qs[ref_learner_id],
+            )
+
+            p = Process(target=explorer.start, args=(self.lock, group_id))
+            p.start()
+
+            logging.info("speedup({:d}): binding env {:d} to CPU {:d}".format(speedup, env_id, explorer_core))
+            _p = psutil.Process(p.pid)
+            _p.cpu_affinity([explorer_core])
+
+        elif speedup == 2 and env_para.get('env_info').get('size', 1) == 1:  # and logical>=env_num
+            base = ((env_id // physical) % (logical // physical)) * physical
+            env = env_id % physical
+            cpu = env // socket + (env % socket) * (physical // socket) + base
+            env_info = env_para.get("env_info")
+            env_info.update({"env_start_core": cpu})
+            env_para.update({"env_info": env_info})
+            config_info.update({"env_para": env_para})
+            logging.info('speedup for single env pool. binding to cpu {}'.format(cpu))
+
+            send_explorer = Queue()
+            explorer = Explorer(
+                config_info,
+                self.broker_id,
+                recv_broker=send_explorer,
+                send_broker=self.explorer_share_qs[ref_learner_id],
+            )
+
+            p = Process(target=explorer.start)
+            p.start()
+
+            _p = psutil.Process(p.pid)
+            _p.cpu_affinity([cpu])
+            logging.info("speedup({:d}): binding env {:d} to CPU {:d}".format(speedup, env_id, cpu))
+
+        elif speedup == 1 and logical > (env_num + start_core):
+            send_explorer = Queue()
+            explorer = Explorer(
+                config_info,
+                self.broker_id,
+                recv_broker=send_explorer,
+                send_broker=self.explorer_share_qs[ref_learner_id],
+            )
+
+            p = Process(target=explorer.start)
+            p.start()
+
+            _p = psutil.Process(p.pid)
+            _p.cpu_affinity([start_core + env_id])
+            logging.info("speedup({:d}): binding env {:d} to CPU {:d}".format(speedup, env_id, start_core + env_id))
+
+        else:
+            send_explorer = Queue()
+            explorer = Explorer(
+                config_info,
+                self.broker_id,
+                recv_broker=send_explorer,
+                send_broker=self.explorer_share_qs[ref_learner_id],
+            )
+
+            p = Process(target=explorer.start)
+            p.start()
+
+        self.send_explorer_q.update({env_id: send_explorer})
+        self.explore_process.update({env_id: p})
+
+        """
+        socket, logical, physical = self._get_hardware_config()
+        if speedup == 3:
+            logging.warning("###  PIPELINE BINDING  ###  TEST FUNCTION  ###")
+            logging.info("speedup({:d}): binding env {:d} to CPU {:d}".format(speedup, env_id, explorer_core))
+            _p = psutil.Process(p.pid)
+            _p.cpu_affinity([explorer_core])
+        elif speedup == 2 and logical >= env_num:  # balanced core binding
+            base = ((env_id // physical) % (logical // physical)) * physical
+            env = env_id % physical
+            cpu = env // socket + (env % socket) * (physical // socket) + base
+            _p = psutil.Process(p.pid)
+            _p.cpu_affinity([cpu])
+            logging.info("speedup({:d}): binding env {:d} to CPU {:d}".format(speedup, env_id, cpu))
+        elif speedup == 1 and logical > (env_num + start_core):  # sequential core binding
+            _p = psutil.Process(p.pid)
+            _p.cpu_affinity([start_core + env_id])
+            logging.info("speedup({:d}): binding env {:d} to CPU {:d}".format(speedup, env_id, start_core + env_id))
+        else:  # scheduled by os
+            logging.info("speedup({:d}): no binding".format(speedup))
+        """
+    # revised by ZZX *end
 
     def create_evaluator(self, config_info):
         """Create evaluator."""

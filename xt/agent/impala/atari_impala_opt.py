@@ -23,17 +23,21 @@ from time import sleep
 import numpy as np
 from collections import defaultdict, deque
 
-from xt.agent.ppo.cartpole_ppo import CartpolePpo
+# revised by ZZX
+from xt.agent import Agent
 from zeus.common.ipc.message import message, set_msg_info
 from zeus.common.util.register import Registers
 
 
 @Registers.agent
-class AtariImpalaOpt(CartpolePpo):
+class AtariImpalaOpt(Agent):  # revised by ZZX. previous: AtariImpalaOpt(CartpoleImpala)
     """Build Atari agent with IMPALA algorithm."""
 
     def __init__(self, env, alg, agent_config, **kwargs):
         self.vector_env_size = kwargs.pop("vector_env_size")
+
+        #added by ZZX
+        self.wait_num = kwargs.pop("wait_num")
 
         super().__init__(env, alg, agent_config, **kwargs)
         self.keep_seq_len = True  # to keep max sequence length in explorer.
@@ -50,6 +54,9 @@ class AtariImpalaOpt(CartpolePpo):
         self.reward_track = deque(
             maxlen=self.vector_env_size * self.broadcast_weights_interval)
         self.reward_per_env = defaultdict(float)
+
+        # added by ZZX
+        self.last_info = [{'env_id': _} for _ in range(self.wait_num)]
 
     def get_explore_mean_reward(self):
         """Calculate explore reward among limited trajectory."""
@@ -69,15 +76,98 @@ class AtariImpalaOpt(CartpolePpo):
         action = predict_val[2]
 
         # update transition data
-        for env_id in range(self.vector_env_size):
-            self.sample_vector[env_id]["cur_state"].append(state[env_id])
-            self.sample_vector[env_id]["logit"].append(logit[env_id])
-            self.sample_vector[env_id]["action"].append(action[env_id])
+
+        # revised by ZZX *begin
+        # for env_id in range(self.vector_env_size):
+        #     self.sample_vector[env_id]["cur_state"].append(state[env_id])
+        #     self.sample_vector[env_id]["logit"].append(logit[env_id])
+        #     self.sample_vector[env_id]["action"].append(action[env_id])
+
+        assert len(self.last_info) == len(state) == self.wait_num, print(
+            '[GGLC] === {} {} {}'.format(len(self.last_info), len(state), self.wait_num))
+        if self.wait_num != self.vector_env_size:
+            for i in range(self.wait_num):
+                env_id = self.last_info[i]['env_id']
+                self.sample_vector[env_id]["cur_state"].append(state[i])
+                self.sample_vector[env_id]["logit"].append(logit[i])
+                self.sample_vector[env_id]["action"].append(action[i])
+        else:
+            for env_id in range(self.vector_env_size):
+                self.sample_vector[env_id]["cur_state"].append(state[env_id])
+                self.sample_vector[env_id]["logit"].append(logit[env_id])
+                self.sample_vector[env_id]["action"].append(action[env_id])
+        # revised by ZZX *end
 
         return action
 
+    # added by ZZX
+    def run_one_episode(self, use_explore, need_collect, lock=None, gid=-1, eid=-1):
+        """
+        Do interaction with max steps in each episode.
+
+        :param use_explore:
+        :param need_collect: if collect the total transition of each episode.
+        :return:
+        """
+        # clear the old trajectory data
+        self.clear_trajectory()
+        state = self.env.get_init_state(self.id)
+
+        for _ in range(self.max_step):
+            _start = time.time()
+            self.clear_transition()
+
+            state, self.last_info = self.do_one_interaction(state, use_explore, lock, gid, eid, need_info=True)
+
+            if need_collect:
+                self.add_to_trajectory(self.transition_data)
+
+            if self.transition_data["done"]:
+                self.env.reset()
+                state = self.env.get_init_state(self.id)
+
+        traj = self.get_trajectory()
+        return traj
+
+    # added by ZZX
+    def data_proc(self):
+        episode_data = self.trajectory
+        states = episode_data["cur_state"]
+
+        actions = np.asarray(episode_data["real_action"])
+        actions = np.eye(self.action_dim)[actions.reshape(-1)]
+
+        pred_a = np.asarray(episode_data["action"])
+        states.append(episode_data["last_state"])
+
+        states = np.asarray(states)
+        self.trajectory["cur_state"] = states
+        self.trajectory["real_action"] = actions
+        self.trajectory["action"] = pred_a
+
     def handle_env_feedback(self, next_raw_state, reward, done, info, use_explore):
         """Handle next state, reward and info."""
+
+        # revise by ZZX *begin
+        if self.vector_env_size != self.wait_num:
+            for i in range(self.wait_num):
+                env_id = info[i]['env_id']
+                info[i].update({'eval_reward': reward[i]})
+                self.reward_per_env[env_id] += reward[i]
+
+                if info[i].get('real_done'):
+                    self.reward_track.append(self.reward_per_env[env_id])
+                    self.reward_per_env[env_id] = 0
+
+            for i in range(self.wait_num):
+                env_id = info[i]['env_id']
+                self.sample_vector[env_id]['reward'].append(reward[i])
+                self.sample_vector[env_id]['done'].append(done[i])
+                self.sample_vector[env_id]['info'].append(info[i])
+
+            return self.transition_data
+        # revise by ZZX *end
+
         for env_id in range(self.vector_env_size):
             info[env_id].update({'eval_reward': reward[env_id]})
             self.reward_per_env[env_id] += reward[env_id]
