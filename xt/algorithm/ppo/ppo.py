@@ -86,10 +86,13 @@ class PPO(Algorithm):
 
     def predict(self, state):
         """Overwrite the predict function, owing to the special input."""
+        # print('[GGLC] alg/ppo#89 state: ', type(state), len(state), state[0].shape)
         if not isinstance(state, (list, tuple)):
             state = state.reshape((1,) + state.shape)
         else:
             state = list(map(lambda x: x.reshape((1,) + x.shape), state))
             state = np.vstack(state)
+        # print('[GGLC] alg/ppo#94 state: ', type(state), len(state), state.shape)
+        # state = state[0]
         pred = self.actor.predict(state)
         return pred

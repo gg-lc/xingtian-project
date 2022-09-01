@@ -136,4 +136,5 @@ def make_dist(ac_type, ac_dim):
     elif ac_type == 'DiagGaussian':
         return DiagGaussianDist(ac_dim)
     else:
+        # print('[GGLC] ts_dist#139: ', ac_type, ac_dim)
         raise NotImplementedError

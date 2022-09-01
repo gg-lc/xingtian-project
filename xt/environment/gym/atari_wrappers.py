@@ -28,6 +28,8 @@ class AtariBaseEnv(Environment, gym.Wrapper):
 
     def init_env(self, env_info):
         env = gym.make(env_info["name"])
+        # env.seed(0)
+        # print('atari wrappers seed = 42')
         gym.Wrapper.__init__(self, env)
 
         self.state_buffer = np.zeros((2, ) + env.observation_space.shape, dtype=np.uint8)

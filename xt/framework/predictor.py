@@ -89,6 +89,7 @@ class Predictor(object):
         alg_para = self.config_info.get('alg_para')
         setproctitle.setproctitle("xt_predictor")
 
+        # print('[GGLC] predictor#92: ', alg_para)
         self.alg = alg_builder(**alg_para)
 
         self.process_fn = {'sync_weights': self.sync_weights,

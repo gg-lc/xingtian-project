@@ -18,16 +18,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 """Create a module cover the training process within the RL problems."""
-import multiprocessing
-# multiprocessing.set_start_method('spawn')
+
 import os
-import pickle
 import threading
-from time import time, sleep
+from time import time
 from copy import deepcopy
 from multiprocessing import Queue, Process
-
-import dill
 import numpy as np
 from absl import logging
 from collections import deque, defaultdict
@@ -46,8 +42,6 @@ from zeus.common.util.hw_cloud_helper import mox_makedir_if_not_existed
 from zeus.common.util.logger import Logger, StatsRecorder
 from zeus.common.util.profile_stats import PredictStats, TimerRecorder
 
-import tensorflow as tf
-
 
 class Learner(object):
     """Learner manage the train-processing of whole RL pipe-line."""
@@ -61,7 +55,6 @@ class Learner(object):
             data_url=None,
             benchmark_info=None,
             name="T0",
-            **kwargs
     ):
         self._name = name
         self.alg_para = deepcopy(alg_para)
@@ -96,7 +89,6 @@ class Learner(object):
         self.max_episode = agent_para.get("agent_config", {}).get("complete_episode")
         self._log_interval = benchmark_info.get("log_interval_to_train", 10)
 
-
         self._explorer_ids = list()
 
         self._pbt_aid = None
@@ -106,10 +98,6 @@ class Learner(object):
         if data_url is not None:
             self.s3_path = os.path.join(data_url, _model_dir[0])
             mox_makedir_if_not_existed(self.s3_path)
-
-        self.shared_queue = kwargs.get("shared_queue")
-        self.quantization = kwargs.get("quantization", False)
-
 
     def add_to_pbt(self, pbt_config, metric, weights):
         """Add this lerner to population."""
@@ -154,7 +142,7 @@ class Learner(object):
         # self.send_predict = predictor.request_q
         # print("send predict", self.send_predict)
         p = Process(target=predictor.start)
-        p.daemon = False
+        p.daemon = True
 
         p.start()
 
@@ -172,9 +160,7 @@ class Learner(object):
             self.stats_deliver,
             self.eval_adapter,
             log_interval=self._log_interval,
-            name=self._name,
-            shared_queue=self.shared_queue,
-            quantization=self.quantization
+            name=self._name
         )
         self.train_worker.explorer_ids = self.explorer_ids
         self.train_worker.pbt_aid = self._pbt_aid
@@ -232,9 +218,6 @@ class TrainWorker(object):
         self.actual_step = 0
         self.name = kwargs.get('name', 'T0')
 
-        self.quantization = kwargs.get('quantization', False)
-        # print("quantization ==================== {}".format(self.quantization))
-
         self.max_episode = max_episode
         self.elapsed_episode = 0  # off policy, elapsed_episode > train count
 
@@ -253,17 +236,6 @@ class TrainWorker(object):
         self._explorer_ids = None
         self._pbt_aid = None
         self._train_data_counter = defaultdict(int)
-        shared_queue = kwargs.get("shared_queue")
-        self.raw_weights_queue = shared_queue[0]  # type:Queue
-        self.compress_weights_queue = shared_queue[1]  # type:Queue
-
-        self.keras_model_file_path = "explorer" + str(time()) + ".h5"
-
-        self.save_model_times = 0
-        self.save_model_time = 0
-
-        self.train_times = 0
-        self.train_time = 0
 
     @property
     def explorer_ids(self):
@@ -326,30 +298,16 @@ class TrainWorker(object):
     def train(self):
         """Train model."""
         if not self.alg.async_flag:
-            if self.quantization:
-                keras_model_file_path = self.alg.save_keras_model()
-                self.raw_weights_queue.put(keras_model_file_path)
-                # here bolt
-                serialized_model = self.compress_weights_queue.get()
-                self._dist_policy(weight=serialized_model)
-
-                # p = multiprocessing.Process(target=self.compass_weight)
-                # p.start()
-                pass
-            else:
-                policy_weight = self.alg.get_weights()
-                self._dist_policy(weight=policy_weight)
+            policy_weight = self.alg.get_weights()
+            self._dist_policy(weight=policy_weight)
 
         loss = 0
-
-
         while True:
+            # print('[GGLC] learner: wait for prepare data times {}'.format(self.alg.prepare_data_times))
             for _tf_val in range(self.alg.prepare_data_times):
                 # logging.debug("wait data for preparing-{}...".format(_tf_val))
                 with self.logger.wait_sample_timer:
                     data = self.train_q.recv()
-                    # print("self.train_q.recv()======================")
-
                 with self.logger.prepare_data_timer:
                     data = bytes_to_str(data)
                     self.record_reward(data)
@@ -388,17 +346,7 @@ class TrainWorker(object):
 
             with self.lock, self.logger.train_timer:
                 # logging.debug("start train process-{}.".format(self.train_count))
-                train_start = time()
                 loss = self.alg.train(episode_num=self.elapsed_episode)
-                train_end = time()
-                self.train_time += (train_end - train_start)
-                self.train_times += 1
-                # if self.train_times % 100 == 0:
-                #     print(self.alg)
-                #     print("train time ================ {}".format(self.train_time / self.train_times))
-
-            # with open("/home/xys/primary_xingtian/xingtian/record.txt", "a+") as f:
-            #     f.write("\n\n\n\ntrain_times === {}\n\n\n\n".format(self.train_times))
 
             if type(loss) in (float, np.float64, np.float32, np.float16, np.float):
                 self.logger.record(train_loss=loss)
@@ -412,74 +360,27 @@ class TrainWorker(object):
 
             # The requirement of distribute model is checkpoint ready.
             if not self.alg.async_flag and self.alg.checkpoint_ready(self.train_count):
+                _save_t1 = time()
+                policy_weight = self.alg.get_weights()
+                self._metric.append(fix_weight=time() - _save_t1)
 
-                if self.quantization:
-                    # logging.info("======================get weights====================")
-                    # sleep(0.01)
-                    start_compass = time()
-                    # here bolt
-                    # if not self.compress_weights_queue.empty():
-                    if True:
-                        # print("================get compass weight====================")
-                        keras_model_file_path = self.alg.save_keras_model()
-                        self.raw_weights_queue.put(keras_model_file_path)
-                        serialized_model = self.compress_weights_queue.get()
-                        # quantization_start = time()
-                        # quantization_end = time()
-                        # print("after compass ===================")
-                        # print("quantization_time ============= {}".format(quantization_end - quantization_start))
-                        if not self.raw_weights_queue.empty():
-                            file = self.raw_weights_queue.get()
-                            os.remove(file)
-                        # self.raw_weights_queue.put(keras_model_file_path)
-                        # print("self.raw_weights_queue .lenth ================{}".format(self.raw_weights_queue.qsize()))
-
-                        # print("self.compress_weights_queue .lenth ================{}".format(self.compress_weights_queue.qsize()))
-                        end_get = time()
-                        # print("self.compress_weights_queue.get() =============== {}".format(end_get - start_get))
-                        # while not self.compress_weights_queue.empty():
-                        #     policy_weight = self.compress_weights_queue.get()
-                        # print("======================serialized_model type ===================={}".
-                        #              format(serialized_model))
-                        _dist_st = time()
-                        self._dist_policy(serialized_model, self.train_count)
-                        # print("policy_weight ===================== {}".format(policy_weight))
-                        self._metric.append(send=time() - _dist_st)
-                        self._metric.report_if_need()
-                    # else:
-                    #     print("empty============ ===================")
-                    self.save_model_times += 1
-                    self.save_model_time += time() - start_compass
-
-                    # if self.save_model_times % 100 == 0:
-                    #     logging.info(
-                    #         "save_model_time ============= {}".format(self.save_model_time / self.save_model_times))
-                else:
-                    # print("send weight=======================================")
-                    _save_t1 = time()
-                    policy_weight = self.alg.get_weights()
-                    self._metric.append(fix_weight=time() - _save_t1)
-
-                    _dist_st = time()
-                    # if policy_weight
-                    self._dist_policy(policy_weight, self.train_count)
-                    # print("policy_weight ===================== {}".format(policy_weight))
-                    self._metric.append(send=time() - _dist_st)
-                    self._metric.report_if_need()
-
-                quantization_end = time()
-                # print("quantization_time ================================== {}".format(
-                #     quantization_end - quantization_start))
+                _dist_st = time()
+                self._dist_policy(policy_weight, self.train_count)
+                self._metric.append(send=time() - _dist_st)
+                self._metric.report_if_need()
             else:
                 if self.alg.checkpoint_ready(self.train_count):
                     policy_weight = self.alg.get_weights()
                     weight_msg = message(policy_weight, cmd="predict{}".format(self.name), sub_cmd='sync_weights')
                     self.model_q.send(weight_msg)
 
+
             if self.train_count % self._log_interval == 0:
                 self.stats_deliver.send(self.logger.get_new_info(), block=True)
 
             self.train_count += 1
+
+            # print('[INFO] learner train-{} (episode_num{})'.format(self.train_count, self.elapsed_episode))
 
     def record_reward(self, train_data):
         """Record reward in train."""
@@ -495,10 +396,11 @@ class TrainWorker(object):
         data_dict = get_msg_data(train_data)
 
         # update multi agent train reward without done flag
-        if self.alg.alg_name in ("QMixAlg",) or self.alg.alg_name in ("SCCAlg",):  # fixme: unify the record op
+        if self.alg.alg_name in ("QMixAlg", ) or self.alg.alg_name in ("SCCAlg", ):  # fixme: unify the record op
             self.actual_step += np.sum(data_dict["filled"])
             self.won_in_episodes.append(data_dict.pop("battle_won"))
             self.logger.update(explore_won_rate=np.nanmean(self.won_in_episodes))
+
             self.logger.record(
                 step=self.actual_step,
                 train_reward=np.sum(data_dict["reward"]),
@@ -514,14 +416,7 @@ class TrainWorker(object):
             )
             return
 
-        # print("==============================REW {}==================================".format(np.sum(data_dict['reward'])))
         data_length = len(data_dict["done"])  # fetch the train data length
-        # print(data_dict)
-        # for data_index in range(data_length):
-        #   info = data_dict["info"][data_index]
-        #  print(info)
-        # print("{}=={}".format(info['eval_reward'],info['real_done']))
-
         for data_index in range(data_length):
             reward = data_dict["reward"][data_index]
             done = data_dict["done"][data_index]
@@ -533,36 +428,18 @@ class TrainWorker(object):
                 done = info.get("real_done", done)
 
             if done:
-                # print("=============================={},REW {}==================================".format(key,self.actor_reward[key]))
                 self.logger.record(
                     step=self.actual_step,
                     train_count=self.train_count,
                     train_reward=self.actor_reward[key],
                     trajectory_length=self.actor_trajectory[key],
                 )
+                # print('#B', self.train_count, self.actor_reward[key])  # update reward here GGLC
+                # print("$$ {} epi reward-{}. with len-{}".format(key, self.actor_reward[key], self.actor_trajectory[key]))
                 # logging.debug("{} epi reward-{}. with len-{}".format(
                 #     key, self.actor_reward[key], self.actor_trajectory[key]))
                 self.actor_reward[key] = 0.0
                 self.actor_trajectory[key] = 0
-
-    def compass_weight(self):
-        while True:
-            print("===========================compress weights....==============================")
-            model_file_path = self.raw_weights_queue.get()
-            print("===========================after get weights....==============================")
-
-            if not self.raw_weights_queue.empty():
-                continue
-            logging.info(os.path.exists(model_file_path))
-            print("model_file_path =============== {}".format(model_file_path))
-            model1 = tf.keras.models.load_model("/home/xys/primary_xingtian/xingtian/" + model_file_path)
-            converter = tf.lite.TFLiteConverter.from_keras_model(model1)
-            print("okoooooooooooooooooooooo000000000000oo")
-
-            converter.optimizations = [tf.lite.Optimize.DEFAULT]
-            tflite_model = converter.convert()
-            serialize_tflite_model = dill.dumps(tflite_model)
-            self.compress_weights_queue.put(serialize_tflite_model)
 
 
 class PredictThread(object):
@@ -661,7 +538,7 @@ def patch_alg_within_config(config, node_type="node_config"):
     return config
 
 
-def setup_learner(config, eval_adapter, learner_index, data_url=None, shared_queue=None):
+def setup_learner(config, eval_adapter, learner_index, data_url=None):
     """Start learner."""
     env_para = config["env_para"]
     agent_para = config["agent_para"]
@@ -674,8 +551,6 @@ def setup_learner(config, eval_adapter, learner_index, data_url=None, shared_que
     # add benchmark id
     bm_info = config.get("benchmark", dict())
 
-    quantization = model_info["actor"].get("quantization", False)
-
     learner = Learner(
         alg_para,
         env_para,
@@ -683,9 +558,7 @@ def setup_learner(config, eval_adapter, learner_index, data_url=None, shared_que
         eval_adapter=eval_adapter,
         data_url=data_url,
         benchmark_info=bm_info,
-        name="T{}".format(learner_index),
-        shared_queue=shared_queue,
-        quantization=quantization
+        name="T{}".format(learner_index)
     )
 
     learner.config_info = config

@@ -40,7 +40,13 @@ class PPO(Agent):
         :param use_explore:
         :return: action value
         """
+        # for single env: state np.ndarray(dim, dim, size)
+        # for multi env: state list(np.ndarray(dim, dim, size))
         predict_val = self.alg.predict(state)
+        # predict_val: tuple
+        #   array: [action, action, ...]
+        #   array: [[logp], [logp], ...]
+        #   array: [[value], [value], ...]
         return self.handel_predict_value(state, predict_val)
 
     def handel_predict_value(self, state, predict_val):

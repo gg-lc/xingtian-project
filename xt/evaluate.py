@@ -42,6 +42,11 @@ from zeus.common.util.hw_cloud_helper import XT_HWC_WORKSPACE
 
 TEST_MODEL_GAP = 5
 
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
+
 
 def setup_evaluate_adapter(config, controller, s3_result_path=None):
     """Start test."""

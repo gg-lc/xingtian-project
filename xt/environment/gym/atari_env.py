@@ -18,6 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 """Make atari env for simulation."""
+import random
+import time
+
 import cv2
 import numpy as np
 from collections import deque
@@ -61,6 +64,7 @@ class AtariEnv(Environment):
             self.stack_obs.append(self.init_obs)
 
     def reset(self):
+        # print('[AtariEnv] reset()')
         """
         Reset the environment, if done is true, must clear obs array.
 
@@ -76,6 +80,7 @@ class AtariEnv(Environment):
         return state
 
     def step(self, action, agent_index=0):
+        # print('[AtariEnv] step()')
         """
         Run one timestep of the environment's dynamics.
 
@@ -86,6 +91,7 @@ class AtariEnv(Environment):
         :return: state, reward, done, info
         """
         obs, reward, done, info = self.env.step(action)
+        # print('debug-1', obs.shape)
         if done:
             self.init_stack_obs(self.stack_size - 1)
 
@@ -93,9 +99,12 @@ class AtariEnv(Environment):
         # self.stack_obs.append(obs)
         state = np.concatenate(self.stack_obs, -1)
         self.done = done
+        # print('debug-2', state.shape)
         return state, reward, done, info
 
     def obs_proc(self, obs):
+        # convert the RGB img to Gray img
+        # shape: (width, height, 3)  -->  (dim, dim, 1)
         obs = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
         obs = cv2.resize(obs, (self.dim, self.dim),
                          interpolation=cv2.INTER_AREA)
@@ -116,11 +125,17 @@ class VectorAtariEnv(Environment):
         for _ in range(self.vector_env_size):
             self.env_vector.append(AtariEnv(env_info))
 
+        self.step_count = 0
+        self.epi_count = 0
+        self.len_count = 0
+
     def reset(self):
         """Reset each env within vector."""
         state = [env.reset() for env in self.env_vector]
         self.init_state = state
-
+        # return: list()
+        #   len: vector_size
+        #   state(obs): np.ndarray(dim, dim, 4)
         return state
 
     def step(self, action, agent_index=0):
@@ -132,9 +147,15 @@ class VectorAtariEnv(Environment):
         :return:
         """
         batch_obs, batch_reward, batch_done, batch_info = list(), list(), list(), list()
+        # print('##############', len(self.env_vector), self.vector_env_size, action)
+        # self.step_count += 1
+        # self.len_count += 1
         for env_id in range(self.vector_env_size):
             obs, reward, done, info = self.env_vector[env_id].step(action[env_id])
             if done:
+                # self.epi_count += 1
+                # print('[episode] step={} episode={} len={}'.format(self.step_count, self.epi_count, self.len_count))
+                # self.len_count = 0
                 obs = self.env_vector[env_id].reset()
 
             batch_obs.append(obs)
@@ -142,6 +163,16 @@ class VectorAtariEnv(Environment):
             batch_done.append(done)
             batch_info.append(info)
 
+        # print('[Vector] step return batch(obs, rew, done, info): len-{} obs-{} rew-{} done-{} info-{}'.format(
+        #     len(batch_obs), batch_obs[0].shape, batch_reward, batch_done, batch_info[0]
+        # ))
+
+        # return:
+        #   batch_size = vector_size
+        #   obs: (84, 84, 4)
+        #   rew: float
+        #   done: bool
+        #   info: dict**  {'ale.lives': int, 'real_done': bool}
         return batch_obs, batch_reward, batch_done, batch_info
 
     def get_env_info(self):
@@ -158,6 +189,9 @@ class VectorAtariEnv(Environment):
         agent_ids = [0]
         env_info.update({"agent_ids": agent_ids})
 
+        # print('============================\n[Vector] get_env_info return {}'.format(env_info))
+        # return:
+        #   {'n_agents': 1, 'api_type': 'standalone', 'agent_ids': [0]}
         return env_info
 
     def close(self):

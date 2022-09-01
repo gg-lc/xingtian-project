@@ -20,6 +20,9 @@
 """Build DQN algorithm."""
 
 import os
+import sys
+import time
+
 import numpy as np
 
 from xt.algorithm import Algorithm
@@ -57,8 +60,12 @@ class DQN(Algorithm):
         self.target_actor = model_builder(model_info)
         self.buff = ReplayBuffer(BUFFER_SIZE)
         self.double_dqn = alg_config.get('double_dqn', False)
+        self.cnt_0 = 0  # GGLC/DQN
+        self.cnt_1 = 0  # GGLC/DQN
 
     def train(self, **kwargs):
+        _start = time.time()  # GGLC/DQN
+        # print('[GGLC/DQN] alg/dqn: start train-{}.'.format(self.cnt_0))
         """
         Train process for DQN algorithm.
 
@@ -100,6 +107,9 @@ class DQN(Algorithm):
         if self.train_count % TARGET_UPDATE_FREQ == 0:
             self.update_target()
 
+        print('[GGLC/DQN] alg/dqn: alg train-{} for {:.4f}ms.'.format(self.cnt_0, (time.time()-_start)*1000))
+        self.cnt_0 += 1  # GGLC/DQN
+
         return loss
 
     def restore(self, model_name=None, model_weights=None):
@@ -111,6 +121,7 @@ class DQN(Algorithm):
         :param model_weights:
         :return:
         """
+        print('[GGLC/DQN] alg/dqn: start restore.')
         if model_weights is not None:
             self.actor.set_weights(model_weights)
             self.target_actor.set_weights(model_weights)
@@ -126,8 +137,11 @@ class DQN(Algorithm):
         :param train_data:
         :return:
         """
+        _start = time.time()  # GGLC/DQN
         buff = self.buff
         data_len = len(train_data["done"])
+        # if self.cnt_1 > 10000 or self.cnt_1 % 1000 == 0:
+        #     print('[GGLC/DQN] alg/dqn: predata-{} len={}'.format(self.cnt_1, data_len))
         for index in range(data_len):
             data = (
                 train_data["cur_state"][index],
@@ -138,11 +152,20 @@ class DQN(Algorithm):
             )
             buff.add(data)  # Add replay buffer
 
+        # print('[GGLC] alg/dqn: buffer len={} size={}'.format(len(self.buff.buffer), sys.getsizeof(self.buff.buffer)))
+
+        # if self.cnt_1 > 10000 or self.cnt_1 % 1000 == 0:
+        #     print('[GGLC/DQN] alg/dqn: end predata-{} for {:.4f}ms.'.format(self.cnt_1, (time.time()-_start)*1000))
+        self.cnt_1 += 1  # GGLC/DQN
+
     def update_target(self):
         """
         Synchronize the actor's weight to target.
 
         :return:
         """
+        _start = time.time()  # GGLC/DQN
+        print('[GGLC/DQN] alg/dqn: start uptarget')
         weights = self.actor.get_weights()
         self.target_actor.set_weights(weights)
+        print('[GGLC/DQN] alg/dqn: end uptarget for {:.4f}ms.'.format((time.time()-_start)*1000))

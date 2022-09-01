@@ -77,7 +77,7 @@ def start_broker_elf(broker_id, push_port, pull_port,
                      server_ip="127.0.0.1", verbosity="info"):
     """Create a broker and start it."""
     logging.set_verbosity(VERBOSITY_MAP.get(verbosity, logging.INFO))
-    logging.info("set verbosity in broker: {}".format(verbosity))
+    # logging.info("set verbosity in broker: {}".format(verbosity))
 
     broker_obj = Broker(server_ip, broker_id, push_port, pull_port)
 

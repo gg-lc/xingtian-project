@@ -22,6 +22,7 @@ DESC: Agent module contains all the interaction operations between algorithm and
 
 User could implement the infer_action and handle_env_feedback functions.
 """
+import sys
 from collections import defaultdict
 from copy import deepcopy
 from time import time
@@ -55,6 +56,9 @@ class Agent(object):
         self.broadcast_weights_interval = 1
 
         self._stats = AgentStats()
+
+        # revised by ZZX
+        self.step = 0
 
     def clear_transition(self):
         pass
@@ -97,7 +101,7 @@ class Agent(object):
 
         raise NotImplementedError
 
-    def do_one_interaction(self, raw_state, use_explore=True):
+    def do_one_interaction(self, raw_state, use_explore=True, lock=None, gid=-1, eid=-1, need_info=False):
         """
         Use the Agent do one interaction.
 
@@ -106,16 +110,47 @@ class Agent(object):
         :param use_explore:
         :return:
         """
-        _start0 = time()
-        action = self.infer_action(raw_state, use_explore)
-        self._stats.inference_time += time() - _start0
 
-        _start1 = time()
+        _start0 = time()
+        # print('[GGLC] start infer_action for 10000 times...')
+        # for _ in range(10000):
+        #     action = self.infer_action(raw_state, use_explore)
+        # print('[GGLC] infer: {:.1f}ms'.format((1000*(time()-_start0))/10000))
+
+        action = self.infer_action(raw_state, use_explore)
+        # self._stats.inference_time += time() - _start0
+        _start0 = time()
+        # print('[GGLC] infer time = {:.3f}ms, res={}'.format(1000*(time()-_start0), action))
+
+        if lock is not None:
+            lock[gid].acquire()
+            # print('[GGLC] interaction - wait = {}ms'.format(1000*(time()-_start0)))
+            # print('[GGLC] env {} step {} end at {:.5f}ms'.format(id, self.step, 1000*time()))
+        _start0 = time()
+        # print('[GGLC] start step for 10000 times...')
+        # for _ in range(10000):
+        #     next_raw_state, reward, done, info = self.env.step(action, self.id)
+        # print('[GGLC] step: {:.1f}ms'.format((1000*(time()-_start0))/10000))
         next_raw_state, reward, done, info = self.env.step(action, self.id)
-        self._stats.env_step_time += time() - _start1
+        if lock is not None:
+            # print('[GGLC] env {} step {} end at {:.5f}ms'.format(id, self.step, 1000*time()))
+            lock[gid].release()
+            self.step = (self.step+1)%128
+        # print('[GGLC - agent/agent.py] env step: obs{} rew({}) done({}) info({})'.format(
+        #     next_raw_state.shape, reward, done, info))
+        self._stats.env_step_time += time() - _start0
+        # print('[GGLC] step time = {}ms'.format(1000*(time()-_start0)))
+        _start0 = time()
         self._stats.iters += 1
 
+        _start0 = time()
         self.handle_env_feedback(next_raw_state, reward, done, info, use_explore)
+        self._stats.inference_time += time() - _start0
+
+        # print('[GGLC] interaction - handle = {}ms'.format(1000*(time()-_start0)))
+        # revised by ZZX *begin
+        if need_info:
+            return next_raw_state, info
         return next_raw_state
 
     def handle_env_feedback(self, next_raw_state, reward, done, info, use_explore):
@@ -124,7 +159,7 @@ class Agent(object):
         )
         raise NotImplementedError
 
-    def run_one_episode(self, use_explore, need_collect):
+    def run_one_episode(self, use_explore, need_collect, lock=None, gid=-1, eid=-1):
         """
         Do interaction with max steps in each episode.
 
@@ -138,18 +173,28 @@ class Agent(object):
 
         self._stats.reset()
 
+        _start = time() # GGLC
+        cnt = 0
+        # print('[GGLC] agent/agent.py: start run_one_episode, max step = {}'.format(self.max_step))
         for _ in range(self.max_step):
             self.clear_transition()
-            state = self.do_one_interaction(state, use_explore)
 
+            # _start = time()
+            state = self.do_one_interaction(state, use_explore, lock=lock, gid=gid, eid=eid)
+            # print('[GGLC] do_one_interaction = {}ms'.format(1000*(time()-_start)))
+            cnt += 1
             if need_collect:
                 self.add_to_trajectory(self.transition_data)
 
             if self.transition_data["done"]:
                 if not self.keep_seq_len:
                     break
+                # print('[GGLC - agent/agent.py] done==True, $$env reset()')
                 self.env.reset()
                 state = self.env.get_init_state()
+        import time as tm
+        #tm.sleep(1)
+        print(f'[GGLC] agent explore cnt{cnt} max{self.max_step} time={int(1000*(time()-_start))}ms ==================')
 
         last_pred = self.alg.predict(state)
         return self.get_trajectory(last_pred)
@@ -206,6 +251,9 @@ class Agent(object):
     def sync_model(self):
         """Fetch model from broker."""
         model_name = self.recv_explorer.recv()
+        # print('======================================')
+        # print('GGLC: update model at {:d}s, size={}B'.format(int(time()), sys.getsizeof(model_name)))
+        # print('GGLC: model: {}'.format(model_name))
         return model_name
 
     def get_perf_stats(self):

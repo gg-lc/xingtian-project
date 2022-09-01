@@ -22,13 +22,13 @@
 import numpy as np
 
 from absl import logging
-from xt.agent.ppo.ppo import PPO
+from xt.agent import Agent
 from xt.agent.ppo.default_config import GAMMA, LAM
 from zeus.common.util.register import Registers
 
 
 @Registers.agent
-class AtariPpo(PPO):
+class AtariPpo(Agent):
     """Atari Agent with PPO algorithm."""
 
     def __init__(self, env, alg, agent_config, **kwargs):
@@ -49,3 +49,75 @@ class AtariPpo(PPO):
         })
 
         return self.transition_data
+
+    # revised by GGLC:
+    # following functions are copied from agent/PPO
+    def infer_action(self, state, use_explore):
+        """
+        Infer an action with `state`.
+
+        :param state:
+        :param use_explore:
+        :return: action value
+        """
+        # for single env: state np.ndarray(dim, dim, size)
+        # for multi env: state list(np.ndarray(dim, dim, size))
+        predict_val = self.alg.predict(state)
+        # predict_val: tuple
+        #   array: [action, action, ...]
+        #   array: [[logp], [logp], ...]
+        #   array: [[value], [value], ...]
+        return self.handel_predict_value(state, predict_val)
+
+    def handel_predict_value(self, state, predict_val):
+        action = predict_val[0][0]
+        logp = predict_val[1][0]
+        value = predict_val[2][0]
+
+        # update transition data
+        self.transition_data.update({
+            'cur_state': state,
+            'action': action,
+            'logp': logp,
+            'value': value,
+        })
+
+        return action
+
+    def get_trajectory(self, last_pred=None):
+        last_val = last_pred[2][0]
+        self.trajectory['value'].append(last_val)
+        self.data_proc()
+        return super().get_trajectory()
+
+    def data_proc(self):
+        """Process data."""
+        traj = self.trajectory
+        state = np.asarray(traj['cur_state'])
+        action = np.asarray(traj['action'])
+        logp = np.asarray(traj['logp'])
+        value = np.asarray(traj['value'])
+        reward = np.asarray(traj['reward'])
+        done = np.asarray(traj['done'])
+
+        next_value = value[1:]
+        value = value[:-1]
+
+        done = np.expand_dims(done, axis=1)
+        reward = np.expand_dims(reward, axis=1)
+        discount = ~done * GAMMA
+        delta_t = reward + discount * next_value - value
+        adv = delta_t
+
+        for j in range(len(adv) - 2, -1, -1):
+            adv[j] += adv[j + 1] * discount[j] * LAM
+
+        self.trajectory['cur_state'] = state
+        self.trajectory['action'] = action
+        self.trajectory['logp'] = logp
+        self.trajectory['adv'] = adv
+        self.trajectory['old_value'] = value
+        self.trajectory['target_value'] = adv + value
+
+        del self.trajectory['value']
+

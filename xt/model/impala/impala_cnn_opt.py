@@ -31,6 +31,7 @@ by Espeholt, Soyer, Munos et al.
 
 See https://arxiv.org/abs/1802.01561 for the full paper.
 """
+import time
 
 import numpy as np
 
@@ -251,6 +252,8 @@ class ImpalaCnnOpt(XTModel):
     def train(self, state, label):
         """Train with sess.run."""
         bp_logic_outs, actions, dones, rewards = label
+        # print('[GGLC] model/impala_cnn_opt#255')
+        # print(label)
         with self.graph.as_default():
             _, loss = self.sess.run(
                 [self.train_op, self.loss],
@@ -271,10 +274,15 @@ class ImpalaCnnOpt(XTModel):
         :param: state
         :return: action_logits, action_val, value
         """
+        # _start = time.time()
+        # print('[GGLC] model/impala_cnn_opt#276: ')
+        # print(type(state), len(state), state[0].shape)
         with self.graph.as_default():
             feed_dict = {self.ph_state: state}
             return self.sess.run([self.pi_logic_outs, self.baseline, self.out_actions],
                                  feed_dict)
+            # print('[GGLC] inside infer time = {}ms'.format(1000*(time.time()-_start)))
+            # return res
 
     def save_model(self, file_name):
         """Save model without meta graph."""

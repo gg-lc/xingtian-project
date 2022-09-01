@@ -185,6 +185,9 @@ class AgentGroup(object):
 
         # logging.debug("paras_to_init as: \n {}".format(paras_to_init))
         self.agents = [agent_builder(**para) for para in paras_to_init]
+        # print('[GGLC] agent_group#188 paras_to_init: ', paras_to_init)
+        # print('[GGLC] agent_group#189 self.agents: ', self.agents, self.agent_num)
+        # self.agent_num = 1
         logging.debug("makeup agents: {}".format(self.agents))
         self.step_per_episode = paras_to_init[0]["agent_config"].get("max_steps", 18000)
 
@@ -211,7 +214,12 @@ class AgentGroup(object):
 
         for i in range(self.agent_num):
             target_para[i].update(
-                {"vector_env_size": env_info.get("vector_env_size", 1)})
+                # {"vector_env_size": env_info.get("vector_env_size", 1)}
+                # revise by ZZX *begin
+                {"vector_env_size": env_info.get("vector_env_size", 1),
+                 "wait_num": env_info.get("wait_num", env_info.get("vector_env_size", 1))}
+                # revise by ZZX *end
+            )
         return target_para
 
     @staticmethod
@@ -396,7 +404,7 @@ class AgentGroup(object):
         feed_funcs = [agent.handel_predict_value for agent in self.agents]
         feed_inputs = list(zip(states, pred_vals))
 
-        batch_action =  self.bot.do_multi_job(feed_funcs, feed_inputs)
+        batch_action = self.bot.do_multi_job(feed_funcs, feed_inputs)
 
         # agent.id keep pace with the id within the environment.
         action_package = {_ag.id: v for _ag, v in zip(self.agents, batch_action)}
@@ -423,6 +431,7 @@ class AgentGroup(object):
         _start0 = time()
         model_name = self.agents[0].sync_model()  # fixme: async alg dummy
         self.ag_stats.wait_model_time = time() - _start0
+        # print(f'[GGLC] [TIME] update_model = {time() - _start0}')
 
         # fixme: unify model type
         # 1) don't restore model before data meet minimum data set. likes qmix.
@@ -431,9 +440,10 @@ class AgentGroup(object):
             _start1 = time()
             self.restore(model_name)
             self.ag_stats.restore_model_time = time() - _start1
+            # print(f'[GGLC] [TIME] restore_model = {time() - _start1}')
         return type(model_name)
 
-    def explore(self, episode_count):
+    def explore(self, episode_count, lock=None, gid=-1, eid=-1):
         """
         Explore the environment.
 
@@ -448,25 +458,43 @@ class AgentGroup(object):
         # single agent, always use the `run_one_episode` api.
         # multi agent with `standalone` api_type, use the `run_one_episode` api.
         if self.env_info["api_type"] == "standalone":
+            # print('[GGLC] [POINT] 1')
             # (use_explore, collect)
+
+            # revised by ZZX: added lock
             _paras = [
-                (True, False if _ag.alg.async_flag else True) for _ag in self.agents
+                (True, False if _ag.alg.async_flag else True, lock, gid, eid) for _ag in self.agents
             ]
             job_funcs = [agent.run_one_episode for agent in self.agents]
+
+            # GGLC: episode_count = sync_model_interval = 1 (default) ***
+            # print('[GGLC - agent_group] start an explore, episode count = {}'.format(episode_count))
             for _epi_index in range(episode_count):
+                # print('[GGLC - agent_group] start an episode, $$env reset()')
                 _start2 = time()
                 self.env.reset()
                 for agent in self.agents:
                     agent.reset()
 
-                trajectory_list = self.bot.do_multi_job(job_funcs, _paras)
+                trajectory_list = self.bot.do_multi_job(job_funcs,
+                                                        _paras)  # GGLC: inference & interaction (all agents) # agent.py -> run_one_epi
+                # print(f'[GGLC] group explore time={int(1000 * (time() - _start2))}ms')
+
+                # print('[GGLC] agent_group#457 trajectory_list: ', len(trajectory_list), len(trajectory_list[0]['data']['action']))
                 for agent, trajectory in zip(self.agents, trajectory_list):
                     if not agent.alg.async_flag:
-                        # self.trajectories.append(trajectory)
                         self.send_explorer.send(trajectory)
+                        # self.trajectories.append(trajectory)
+                        # revised by GGLC
+                        # if isinstance(trajectory, list):
+                        #     for traj in trajectory:
+                        #         self.send_explorer.send(traj)
+                        # else:
+                        #     self.send_explorer.send(trajectory)
 
                 self._post_processes()
                 self.ag_stats.explore_time_in_epi = time() - _start2
+                # print('[GGLC] agent_group#497 episode_time = {}ms'.format(1000*(time()-_start2)))
 
                 if _epi_index == episode_count - 1:
                     self.ag_stats.update_with_agent_stats(
@@ -474,6 +502,7 @@ class AgentGroup(object):
                     )
 
         elif self.env_info["api_type"] == "unified":
+            # print('[GGLC] [POINT] 2')
             for _ in range(episode_count):
                 _start2 = time()
                 trajectories = self._run_one_unified_episode(

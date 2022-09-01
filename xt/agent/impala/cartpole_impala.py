@@ -67,7 +67,7 @@ class CartpoleImpala(CartpolePpo):
                 else:
                     self.trajectory[k].append(val)
 
-    def run_one_episode(self, use_explore, need_collect):
+    def run_one_episode(self, use_explore, need_collect, lock=None, id=-1):
         """
         Do interaction with max steps in each episode.
 
@@ -82,7 +82,7 @@ class CartpoleImpala(CartpolePpo):
         for _ in range(self.max_step):
             self.clear_transition()
 
-            state = self.do_one_interaction(state, use_explore)
+            state = self.do_one_interaction(state, use_explore, lock, id)
 
             if need_collect:
                 self.add_to_trajectory(self.transition_data)

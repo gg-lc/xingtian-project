@@ -18,7 +18,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE
 """DESC: Xingtian train entrance."""
-import multiprocessing
+
 import os
 import signal
 import sys
@@ -31,26 +31,29 @@ from absl import logging
 import yaml
 import zmq
 
-from collections import deque
-
 from xt.evaluate import setup_evaluate_adapter
 from xt.framework.broker_launcher import launch_broker
 from xt.framework.learner import setup_learner, patch_alg_within_config
 from xt.framework.explorer import setup_explorer
-from xt.framework.compress_weights import CompressWeights, empty_weights_proc_func, serialize_tflite, serialize_bolt
 from zeus.common.util.logger import StatsRecorder, VERBOSITY_MAP
 from zeus.common.util.get_xt_config import parse_xt_multi_case_paras, \
     check_if_patch_local_node, get_pbt_set
 
+
 TRAIN_PROCESS_LIST = list()
+
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
 
 
 def _makeup_learner(config_info, data_url, verbosity):
     """Make up a learner instance and build the relation with broker."""
     config_info = patch_alg_within_config(config_info.copy(), node_type="node_config")
 
-    _exp_params = pprint.pformat(config_info, indent=0, width=1, )
-    logging.info("init learner with:\n{}\n".format(_exp_params))
+    _exp_params = pprint.pformat(config_info, indent=0, width=1,)
+    # logging.info("init learner with:\n{}\n".format(_exp_params))  # revised by ZZX
 
     controller = launch_broker(config_info, verbosity=verbosity)
     eval_adapter = setup_evaluate_adapter(config_info, controller, verbosity)
@@ -63,11 +66,9 @@ def _makeup_learner(config_info, data_url, verbosity):
         weights_store = controller.register("pbt_weights", "store")
     else:
         metric_store, weights_store = None, None
-    shared_queue = [multiprocessing.Queue(1), multiprocessing.Queue(1)]
-    # shared_queue = [deque(maxlen=1), deque(maxlen=1)]
-    for _learner_id in range(pbt_size):
 
-        learner = setup_learner(config_info, eval_adapter, _learner_id, data_url, shared_queue=shared_queue)
+    for _learner_id in range(pbt_size):
+        learner = setup_learner(config_info, eval_adapter, _learner_id, data_url)
 
         controller.register("predict{}".format(learner.name), "send", learner.send_predict)
         learner.send_train = controller.register("train{}".format(learner.name), "send")
@@ -76,8 +77,8 @@ def _makeup_learner(config_info, data_url, verbosity):
         controller.register("recv_predict{}".format(learner.name), "recv", learner.send_broker_predict)
 
         # update the learner <--relationship--> explorer ids
-        eid_start = _learner_id * env_num
-        learner.explorer_ids = list(range(eid_start, eid_start + env_num)) if _use_pbt else None
+        eid_start = _learner_id*env_num
+        learner.explorer_ids = list(range(eid_start, eid_start+env_num)) if _use_pbt else None
 
         # add this learner into population.
         if _use_pbt:
@@ -89,14 +90,10 @@ def _makeup_learner(config_info, data_url, verbosity):
 
     # start learner, after the data within broker stabilization.
     controller.start()
-    compress_worker = CompressWeights(shared_queue=shared_queue)
-    compress_worker.register_weights_process_function(serialize_tflite)
-    compress_worker.start()
     time.sleep(0.01)
+
     for _learner in controller.tasks:
         _learner.start()
-
-
 
     for _index, _learner in enumerate(controller.tasks):
         config_of_learner = copy.deepcopy(config_info)

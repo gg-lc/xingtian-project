@@ -36,6 +36,11 @@ import subprocess
 from zeus.common.util.default_xt import XtBenchmarkConf as xt_bm_config  # pylint: disable=C0413
 from zeus.visual.visual_rewards import display_rewards  # pylint: disable=C0413
 
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
+
 
 def main():
     """
@@ -85,6 +90,7 @@ def main():
         print(args.config_file)
         if args.output == "tensorboard":
             if args.reward_set in ["eval", "both"]:
+
                 display_rewards(args, args.reward_set)
             else:
                 print("Error: non-support reward_set value:{}, yet!".format(args.reward_set))

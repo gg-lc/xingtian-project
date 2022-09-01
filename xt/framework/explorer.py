@@ -20,6 +20,7 @@
 import os
 import signal
 import threading
+import time
 from copy import deepcopy
 from absl import logging
 import setproctitle
@@ -31,11 +32,18 @@ from zeus.common.util.logger import set_logging_format
 
 set_logging_format()
 
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
 
 class Explorer(object):
     """Create an explorer to explore environment to generate train data."""
 
     def __init__(self, config_info, broker_id, recv_broker, send_broker):
+        # revised by ZZX *begin
+        self.gpu = config_info.get("gpu")
+        # revised by ZZX *end
         self.env_para = deepcopy(config_info.get("env_para"))
         self.alg_para = deepcopy(config_info.get("alg_para"))
         self.agent_para = deepcopy(config_info.get("agent_para"))
@@ -52,12 +60,13 @@ class Explorer(object):
         self._buf_path = config_info["share_path"]
         self._buf = ShareBuf(live=10, path=self._buf_path)  # live para is dummy
 
-        logging.info("init explorer with id: {}, buf_path: {}".format(self.explorer_id, self._buf_path))
+        # logging.info("init explorer with id: {}, buf_path: {}".format(self.explorer_id, self._buf_path))
+        logging.info("Explorer-{} initialized".format(self.explorer_id, self._buf_path))
 
-    def start_explore(self):
+    def start_explore(self, lock=None, gid=-1):
         """Start explore process."""
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(-1)
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu)  # revised by ZZX
         explored_times = 0
 
         try:
@@ -73,9 +82,20 @@ class Explorer(object):
             logging.info("explorer-{} start with sync interval-{}".format(
                 self.explorer_id, explore_time))
 
+            # print("[GGLC] explorer:{} start with sync interval:{}".format(
+            #     self.explorer_id, explore_time))
+
             while True:
+                # print('[INFO] explorer-{} start explore-{}'.format(self.explorer_id, cnt))
+                # start = time.time()  # GGLC
+                #print(f'[GGLC] update model')
                 model_type = self.rl_agent.update_model()
-                stats = self.rl_agent.explore(explore_time)
+                #print(f'[GGLC] [TIME] update model = {int(1000*(time.time()-start))}ms')
+
+                start = time.time() # GGLC
+                #print('[GGLC] start explore for {} times.'.format(explore_time))
+                stats = self.rl_agent.explore(explore_time, lock, gid, self.explorer_id)
+                #print(f'[GGLC] [TIME] end explore = {int(1000*(time.time()-start))}ms')
 
                 explored_times += explore_time
                 if explored_times % self.report_stats_interval == self.explorer_id \
@@ -84,6 +104,7 @@ class Explorer(object):
                                         broker_id=self.broker_id,
                                         explorer_id=self.explorer_id)
                     self.recv_agent.send(stats_msg)
+                    # print('[INFO] explorer-{} send log msg'.format(self.explorer_id))
                     if self.explorer_id < 1:
                         logging.debug("EXP{} ran {} ts, restore {} ts, last type:{}".format(
                             self.explorer_id, explored_times, self.rl_agent.restore_count, model_type))
@@ -117,20 +138,20 @@ class Explorer(object):
         """Send train data to learner."""
         while True:
             data = self.recv_agent.recv()
+            # print('[GGLC] explorer#137 data: ', len(data), data[0].keys())
             info_cmd = get_msg_info(data, "cmd")
-
             new_cmd = info_cmd + self.learner_postfix
             set_msg_info(data, broker_id=self.broker_id,
                          explorer_id=self.explorer_id, cmd=new_cmd)
 
             self.send_broker.send(data)
 
-    def start(self):
+    def start(self, lock=None, gid=None):
         """Start actor's thread and process."""
         setproctitle.setproctitle("xt_explorer")
 
         self.start_data_transfer()
-        self.start_explore()
+        self.start_explore(lock, gid)
 
     def close(self):
         self.rl_agent.close()

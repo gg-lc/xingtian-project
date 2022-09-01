@@ -44,7 +44,7 @@ class PPO(XTModel):
         self.action_dim = model_info['action_dim']
         self.input_dtype = model_info.get('input_dtype', 'float32')
 
-        self.action_type = model_config.get('action_type')
+        self.action_type = model_config.get('action_type', 'Categorical')
         self._lr = model_config.get('LR', LR)
         self._batch_size = model_config.get('BATCH_SIZE', BATCH_SIZE)
         self.critic_loss_coef = model_config.get('CRITIC_LOSS_COEF', CRITIC_LOSS_COEF)
@@ -55,6 +55,8 @@ class PPO(XTModel):
         self.verbose = model_config.get('SUMMARY', SUMMARY)
         self.vf_clip = model_config.get('VF_CLIP', VF_CLIP)
 
+        # print('[GGLC] model/ppo#58: ', self.action_type, self.action_dim)
+        # print('[GGLC] model/ppo#59: ', model_info, model_config)
         self.dist = make_dist(self.action_type, self.action_dim)
 
         super().__init__(model_info)
@@ -103,12 +105,15 @@ class PPO(XTModel):
 
     def predict(self, state):
         """Predict state."""
+        # print('[GGLC] model/ppo#108: ')
+        # print(type(state), state.shape)
         with self.graph.as_default():
             feed_dict = {self.state_ph: state}
             action, logp, v_out = self.sess.run([self.action, self.action_log_prob, self.out_v], feed_dict)
         return action, logp, v_out
 
     def train(self, state, label):
+        # print('[MODEL] model ppo train with state... (model/ppo/ppo.py)'.format(state, label))
         with self.graph.as_default():
             nbatch = state[0].shape[0]
             inds = np.arange(nbatch)

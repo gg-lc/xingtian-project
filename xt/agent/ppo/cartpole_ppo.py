@@ -18,6 +18,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 """Build CartPole agent for ppo algorithm."""
+import time
 
 import numpy as np
 
@@ -44,6 +45,8 @@ class CartpolePpo(Agent):
         :param use_explore:
         :return: action value
         """
+        # _ck0 = time.time()
+
         if self.next_state is None:
             # print("multi preidict")
             s_t = state
@@ -55,7 +58,11 @@ class CartpolePpo(Agent):
             action = self.next_action
             value = self.next_value
 
+        # _ck1 = time.time()
+
         real_action = np.random.choice(self.alg.action_dim, p=np.nan_to_num(action))
+
+        # _ck2 = time.time()
 
         # update transition data
         self.transition_data.update({
@@ -64,6 +71,10 @@ class CartpolePpo(Agent):
             "value": value,
             "real_action": real_action
         })
+
+        # _ck3 = time.time()
+        # print('[GGLC] infer time = {:.3f}ms ({:.3f}ms {:.3f}ms {:.3f}ms)'.format(
+        #     (_ck3-_ck0)*1000, (_ck1-_ck0)*1000, (_ck2-_ck1)*1000, (_ck3-_ck2)*1000))
 
         return real_action
 

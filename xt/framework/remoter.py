@@ -60,7 +60,7 @@ def __check_both_env_are_local(env_config_list, local_ip_set):
     return True
 
 
-def dist_model(src_model, node_info, remote_path="xt_archive"):
+def dist_model(src_model, node_info, remote_path="gglc/xt_archive/"):
     """
     Distribute model to remote node.
 
@@ -120,7 +120,7 @@ def _package_xt(default_dist_path="./dist"):
     return default_dist_path
 
 
-def distribute_xt_if_need(config, remote_env, remote_path="xt_archive"):
+def distribute_xt_if_need(config, remote_env, remote_path="gglc/xt_archive"):
     """
     Distribute Xingtian sourcecode among use's node configure.
 
