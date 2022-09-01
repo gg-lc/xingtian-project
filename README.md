@@ -1,6 +1,7 @@
 ### 项目说明
 1. 本项目为协作release版本，综合集中了XingTian项目的各项进展。推荐使用`Git`↔`PyCharm`↔`remote`方式协作。
-2. 更新流程：
+2. **请勿直接修改master分支（REAMDME.md除外）**
+3. 更新流程：
    1. 从master或所需分支**创建新的分支**并命名（如dev_pipeline）
    2. 对**本地分支**（dev_pipeline）进行**修改**
       1. 需要在README中**简要说明代码修改情况**
