@@ -3,7 +3,7 @@
 <img width="300px" height="auto" src="./docs/.images/xingtian-logo.png">
 </div>
 
-[English](./README.md)
+[English](./README.en.md)
 
 ## 简介 
 
