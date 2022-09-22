@@ -81,6 +81,7 @@ class ImpalaCnn(XTModel):
                                      "output_value": label[1]},
                                   batch_size=128,
                                   verbose=0)
+            # print("len loss ============== {}".format(len(loss.history.get("loss"))))
             return loss
 
     def predict(self, state):
@@ -88,7 +89,9 @@ class ImpalaCnn(XTModel):
         with self.graph.as_default():
             K.set_session(self.sess)
             feed_dict = {self.infer_state: state[0], self.adv: state[1]}
-            return self.sess.run([self.infer_p, self.infer_v], feed_dict)
+            result = self.sess.run([self.infer_p, self.infer_v], feed_dict)
+        # print(result)
+        return result
 
 
 def layer_function(x):
@@ -100,6 +103,7 @@ def impala_loss(advantage):
     """Compute loss for impala."""
     def loss(y_true, y_pred):
         policy = y_pred
+        # tf.print("y_pred ==================== {}".format(y_pred))
         log_policy = K.log(policy + 1e-10)
         entropy = -policy * K.log(policy + 1e-10)
         cross_entropy = -y_true * log_policy

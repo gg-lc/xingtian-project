@@ -119,7 +119,7 @@ class ImpalaCnnLite(XTModel):
 
         decay_value = 0.00000000512
 
-        model.compile(loss="mse", optimizer=Adam(lr=LR, clipnorm=40., decay=decay_value))
+        model.compile(optimizer=Adam(lr=LR, clipnorm=40., decay=decay_value))
         # converter = tf.lite.TFLiteConverter.from_keras_model(model)
         # converter.convert()
 
@@ -155,6 +155,7 @@ class ImpalaCnnLite(XTModel):
             result[1] = tmp_result[1].numpy()
             end_train_time = time()
             # print("time =============== {}".format(end_train_time - start_train_time))
+            # print(result)
             return result
 
         # else:
@@ -290,8 +291,10 @@ class ImpalaCnnLite(XTModel):
         loss = self.model.train_step(({'state_input': state[0], 'adv': state[1]},
                                       {"output_actions": label[0], "output_value": label[1]}))
 
+        # print("len loss ============== {}".format(len(loss["loss"])))
         if isinstance(loss, dict):
             return loss["loss"]
+
         return loss
 
 

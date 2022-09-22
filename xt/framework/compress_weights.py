@@ -65,7 +65,7 @@ def serialize_tflite(model_file_path):
     # with open('ppo_cnn.tflite', 'wb') as f:
     #     f.write(tflite_model)
 
-    # print("over ====================================")
+    print("over ====================================")
 
     serialize_tflite_model = dill.dumps(tflite_model)
     os.remove(model_file_path)

@@ -223,12 +223,20 @@ class IMPALAOpt(Algorithm):
                 [state_fit, pg_adv_fit], [action_matrix_fit, value_fit]
             )
 
-            loss_list.extend(actor_loss)
+            # lite
+            # loss_list.extend(actor_loss)
+            # print("actor_loss =============================== {}".format(len(actor_loss)))
+            loss_list.append(loss_to_val(actor_loss))
+
+        # print("len('loss_list') ==================== {}".format(len(loss_list)))
+
+
         # for loss in loss_list:
         #     print("loss.shape ===== {}".format(loss.shape))
         # print(len(loss_list))
         self._init_train_list()
         result = np.mean(loss_list)
+        # print("result ====================== {}".format(result))
         # print(type(loss_list[0]))
         train_end = time()
         self.train_times += 1
@@ -265,6 +273,7 @@ class IMPALAOpt(Algorithm):
         # state = state.reshape((1,) + state.shape)
         dummp_value = np.zeros((1, 1))
         pred = self.actor.predict([state, dummp_value])
+        # print("pred ==================== {}".format(pred))
         return pred
 
     # @staticmethod
@@ -285,6 +294,9 @@ class IMPALAOpt(Algorithm):
     #
     #     return states, behavior_logits, actions, dones, rewards
 
+    def save_keras_model(self):
+        return self.actor.save_keras_model()
+
     @staticmethod
     def _data_proc(episode_data):
         """Process data for impala."""
@@ -298,9 +310,6 @@ class IMPALAOpt(Algorithm):
 
         return (states, actions, dones, pred_a, rewards)
 
-
-    def save_keras_model(self):
-        return self.actor.save_keras_model()
 
     @staticmethod
     def _logp(prob, action):

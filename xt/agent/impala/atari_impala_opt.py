@@ -63,48 +63,6 @@ class AtariImpalaOpt(Agent):  # revised by GGLC. previous: AtariImpalaOpt(Cartpo
         """Calculate explore reward among limited trajectory."""
         return np.nan if not self.reward_track else np.nanmean(self.reward_track)
 
-    # def infer_action(self, state, use_explore):
-    #
-    #     """
-    #             Infer an action with `state`.
-    #
-    #             :param state:
-    #             :param use_explore:
-    #             :return: action value
-    #             """
-    #     # _ck0 = time.time()
-    #
-    #     if self.next_state is None:
-    #         # print("multi preidict")
-    #         s_t = state
-    #         predict_val = self.alg.predict(s_t)
-    #         action = predict_val[0]
-    #         value = predict_val[1]
-    #     else:
-    #         s_t = self.next_state
-    #         action = self.next_action
-    #         value = self.next_value
-    #
-    #     # _ck1 = time.time()
-    #
-    #     real_action = np.random.choice(self.alg.action_dim, p=np.nan_to_num(action))
-    #
-    #     # _ck2 = time.time()
-    #
-    #     # update transition data
-    #     self.transition_data.update({
-    #         "cur_state": s_t,
-    #         "action": action,
-    #         "value": value,
-    #         "real_action": real_action
-    #     })
-    #
-    #     # _ck3 = time.time()
-    #     # print('[GGLC] infer time = {:.3f}ms ({:.3f}ms {:.3f}ms {:.3f}ms)'.format(
-    #     #     (_ck3-_ck0)*1000, (_ck1-_ck0)*1000, (_ck2-_ck1)*1000, (_ck3-_ck2)*1000))
-    #
-    #     return real_action
-
     def infer_action(self, state, use_explore):
         """
         Infer an action with `state`.
@@ -120,13 +78,13 @@ class AtariImpalaOpt(Agent):  # revised by GGLC. previous: AtariImpalaOpt(Cartpo
             # print("multi preidict")
             s_t = state
             predict_val = self.alg.predict(s_t)
+            # print("predict_val ============ {}".format(predict_val))
             action = predict_val[0]
             value = predict_val[1]
         else:
             s_t = self.next_state
             action = self.next_action
             value = self.next_value
-
 
         # update transition data
 
@@ -256,6 +214,7 @@ class AtariImpalaOpt(Agent):  # revised by GGLC. previous: AtariImpalaOpt(Cartpo
         self.next_value = predict_val[1]
         self.next_state = next_state
         # revise by ZZX *begin
+        # print("reward ============== {}".format(reward))
         if self.vector_env_size != self.wait_num:
             for i in range(self.wait_num):
                 env_id = info[i]['env_id']
@@ -268,13 +227,12 @@ class AtariImpalaOpt(Agent):  # revised by GGLC. previous: AtariImpalaOpt(Cartpo
 
             for i in range(self.wait_num):
                 env_id = info[i]['env_id']
-                self.sample_vector[env_id]["reward"].append(np.sign(reward[i]) if use_explore else reward[i])
+                # self.sample_vector[env_id]["reward"].append(np.sign(reward[i]) if use_explore else reward[i])
+                self.sample_vector[env_id]["reward"].append(reward[i])
                 self.sample_vector[env_id]['done'].append(done[i])
                 self.sample_vector[env_id]['info'].append(info[i])
                 self.sample_vector[env_id]['next_value'].append(self.next_value[i])
                 self.sample_vector[env_id]['next_state'].append(next_state[i])
-
-
 
             return self.transition_data
 
@@ -289,8 +247,8 @@ class AtariImpalaOpt(Agent):  # revised by GGLC. previous: AtariImpalaOpt(Cartpo
                 self.reward_per_env[env_id] = 0
 
         for env_id in range(self.vector_env_size):
-            # self.sample_vector[env_id]["reward"].append(reward[env_id])
-            self.sample_vector[env_id]["reward"].append(np.sign(reward[env_id]) if use_explore else reward[env_id])
+            self.sample_vector[env_id]["reward"].append(reward[env_id])
+            # self.sample_vector[env_id]["reward"].append(np.sign(reward[env_id]) if use_explore else reward[env_id])
 
             self.sample_vector[env_id]["done"].append(done[env_id])
             self.sample_vector[env_id]["info"].append(info[env_id])
@@ -325,7 +283,6 @@ class AtariImpalaOpt(Agent):  # revised by GGLC. previous: AtariImpalaOpt(Cartpo
             for _data_key in ("cur_state", "value", "action", "reward", "done", "info", "real_action"):
                 self.trajectory[_data_key].extend(self.sample_vector[env_id][_data_key])
 
-
         # print("self.sample_vector[env_id]['next_state'].length =============== {}".format(self.sample_vector[0]["next_state"][-1].shape))
         # print("self.trajectory['cur_state'].length =============== {}".format(len(self.trajectory["cur_state"])))
         for env_id in range(self.vector_env_size):
@@ -340,7 +297,6 @@ class AtariImpalaOpt(Agent):  # revised by GGLC. previous: AtariImpalaOpt(Cartpo
         # print("self.trajectory['cur_state'].length ================ {}".format(len(self.trajectory['cur_state'])))
 
         # self.trajectory["action"].astype(np.int32)
-
 
         trajectory = message(self.trajectory.copy())
         set_msg_info(trajectory, agent_id=self.id)

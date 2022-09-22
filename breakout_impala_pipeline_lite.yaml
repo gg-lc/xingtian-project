@@ -19,8 +19,6 @@ group_num: 4
 speedup: 3
 
 
-
-
 agent_para:
   agent_name: AtariImpalaOpt
   agent_num : 1
@@ -37,10 +35,15 @@ model_para:
     state_std: 255.0
     action_dim: 4
 
-    quantization: True
+#    quantization: True
 
 
     model_config:
       LR: 0.0015
       sample_batch_step: 160
       grad_norm_clip: 40.0
+
+benchmark:
+  log_interval_to_train: 10
+  id: impala_block_p_q
+  archive_root: ./logs_test
