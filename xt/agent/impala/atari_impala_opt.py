@@ -27,6 +27,7 @@ from collections import defaultdict, deque
 from xt.agent import Agent
 from zeus.common.ipc.message import message, set_msg_info
 from zeus.common.util.register import Registers
+import time
 
 
 @Registers.agent
