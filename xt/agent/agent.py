@@ -139,6 +139,7 @@ class Agent(object):
         if lock is not None:
             lock[gid].acquire()
         _start0 = time()
+
         next_raw_state, reward, done, info = self.env.step(action, self.id)
         if lock is not None:
             lock[gid].release()
