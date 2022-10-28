@@ -33,9 +33,6 @@ from zeus.common.util.register import Registers
 @Registers.env
 class SinglePool(Environment):
     def init_env(self, env_info):
-        # ZZX: repeat
-        self.repeat = env_info.get('repeat', 0)
-        print('[====] SinglePool created with repeat action prob = {}'.format(self.repeat))
         self._env = envpool.make(
             env_info['name'].replace('NoFrameskip-v4', '-v5'),
             env_type='gym',
@@ -45,7 +42,6 @@ class SinglePool(Environment):
             stack_num=4,
             noop_max=30,
             seed=random.randint(0, 1000),
-            repeat_action_probability=self.repeat,
         )
         self.dim = env_info.get('dim', 84)
         self.last_state = np.zeros((self.dim, self.dim, 4))
@@ -73,13 +69,13 @@ class SinglePool(Environment):
 @Registers.env
 class EnvPool(Environment):
     def init_env(self, env_info):
-        print('[GGLC] EnvPool created')
+        print('[EnvPool] envpool created')
         self.size = env_info.get("size")
         self.name = env_info.get("name").replace('NoFrameskip-v4', '-v5')
         self.batch_size = env_info.get("wait_num", self.size)
         self.env_start_core = env_info.get("env_start_core", -1)
         if self.env_start_core != -1:
-            print('[GGLC]: ENV PIPELINE BINDING START FROM {}'.format(self.env_start_core))
+            print('[EnvPool]: ENV PIPELINE BINDING START FROM {}'.format(self.env_start_core))
         assert self.size is not None and self.name is not None, "envpool must assign 'name' and 'size'."
 
         self.pool = envpool.make(
@@ -94,7 +90,8 @@ class EnvPool(Environment):
             seed=random.randint(0, 10000),
             repeat_action_probability=.0,
             num_threads=self.size,
-            thread_affinity_offset=self.env_start_core  # start id of binding thread. -1 means not to use thread affinity
+            thread_affinity_offset=self.env_start_core
+            # start id of binding thread. -1 means not to use thread affinity
         )
 
         self.spec = envpool.make_spec(self.name)
@@ -116,7 +113,7 @@ class EnvPool(Environment):
         # note that the first step needs to specify an action for each env.
         if self.finished_env is None:
             if len(action) != self.size:
-                # print('[GGLC] len(action)!=len(finished_env)... padding... ***')
+                # padding
                 action = list(action)
                 needed = self.size - len(action)
                 for i in range(needed):
